@@ -2,9 +2,7 @@
   "name": "pull-push-puzzle",
   "scripts": {
     "build": "rollup -c",
-    "build-prod": "set NODE_ENV=production && npm run build",
-    "start": "concurrently -k -n rollup,http \"rollup -c -w\" \"http-server -p 3680\"",
-    "start-prod": "set NODE_ENV=production && npm run start"
+    "start": "concurrently -k -n rollup,http \"rollup -c -w\" \"http-server -p 3680\""
   },
   "devDependencies": {
     "@emotion/css": "^11.9.0",
