@@ -1,5 +1,7 @@
 # pull-push-puzzle
 
+ts+preact port of https://observablehq.com/@ndry/pull-push-puzzle-wip
+
 ## Run locally
 
 `npm i`
