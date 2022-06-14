@@ -6,5 +6,5 @@
         "target": "ES2015",
         "moduleResolution": "Node"
     },
-    "files": ["src/index.tsx", "./src/SimulationPlayer.tsx", "./src/ForceRuleEditor.tsx", "src/react-utils/ListEditor.tsx", "./src/SpaceEditor.tsx"]
+    "files": ["src/index.tsx"]
 }
