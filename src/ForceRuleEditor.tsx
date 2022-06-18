@@ -11,6 +11,7 @@ import { apply, pipe } from "./utils/pipe";
 export type Element = import("preact").JSX.Element;
 import { _css as cellCss } from "./TokenKindEditor";
 import { forceCss, ForceMarkers } from "./SpaceEditor";
+import { Updater, useSubUpdate, useUpdate } from "./react-utils/useUpdate";
 
 const loop = (v: number, cap: number) => (v % cap) + ((v < 0) ? cap : 0);
 
@@ -25,14 +26,11 @@ export const _css = css`
 const dots = [...hgDiscDots(3)];
 
 export function ForceRuleEditor({
-    kindCount, value, onInput,
+    kindCount, updater: [value, upd],
 }: {
     kindCount: number;
-    value: ForceRule;
-    onInput: (value: ForceRule) => unknown;
+    updater: Updater<ForceRule>
 }) {
-    const upd = (x: Parameters<typeof update<typeof value>>[1]) => onInput(update(value, x));
-
     const radiusKindSet = (x: number) => upd({ radiusKind: { $set: x } });
     const directionKindAdd = (x: number) => upd({ directionKind: { $set: loop(value.directionKind + x, 6) } });
 
@@ -43,18 +41,16 @@ export function ForceRuleEditor({
             if (v3.lenSq(pos) === 0) {
                 return <TokenKindEditor
                     c={pos}
-                    value={value.sourceKind}
-                    valueCap={kindCount}
-                    onInput={value => upd({ sourceKind: { $set: value } })}
+                    kindUpdater={useSubUpdate([value, upd], "sourceKind")}
+                    kindCap={kindCount}
                 />;
             }
             const rk = getRadiusKind(pos);
             if (rk === value.radiusKind) {
                 return <TokenKindEditor
                     c={pos}
-                    value={value.targetKind}
-                    valueCap={kindCount}
-                    onInput={value => upd({ targetKind: { $set: value } })}
+                    kindUpdater={useSubUpdate([value, upd], "targetKind")}
+                    kindCap={kindCount}
                 />;
             }
             return <circle

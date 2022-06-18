@@ -10,9 +10,9 @@
 <link rel="modulepreload" href="https://unpkg.com/@esm-bundle/emotion@10.0.27/esm/emotion.min.js"/>
     <script type="module">import { options, Fragment, render } from 'preact';
 import { css, cx } from '@emotion/css';
-import * as rx from 'rxjs';
 import * as _ from 'lodash';
-import { useState, useEffect } from 'preact/hooks';
+import * as rx from 'rxjs';
+import { useReducer, useState, useEffect } from 'preact/hooks';
 
 var o=0;function e(_,e,n,t,f){var l,s,u={};for(s in e)"ref"==s?l=e[s]:u[s]=e[s];var a={type:_,props:u,key:n,ref:l,__k:null,__:null,__b:0,__e:null,__d:void 0,__c:null,__h:null,constructor:void 0,__v:--o,__source:f,__self:t};if("function"==typeof _&&(l=_.defaultProps))for(s in l)void 0===u[s]&&(u[s]=l[s]);return options.vnode&&options.vnode(a),a}
 
@@ -92,6 +92,124 @@ function* zip3(s1, s2, s3) {
             for (const x3 of _s3())
                 yield [x1, x2, x3];
 }
+
+const SQRT3 = Math.sqrt(3);
+const axialToFlatCart = ([q, r]) => [(SQRT3 / 2) * q, (1 / 2) * q + r];
+const axialToCube = ([q, r]) => [q, r, -q - r];
+const cubeLen = ([q, r, s]) => (Math.abs(q) + Math.abs(r) + Math.abs(s)) / 2;
+const cubeFlatNorth = [0, 1, -1];
+const cubeRotate60Cv = ([q, r, s]) => [-r, -s, -q];
+const cubeRotate60CvTimes = (v, times) => {
+    times %= 6;
+    if (times < 0)
+        times += 6;
+    for (let i = 0; i < times; i++)
+        v = cubeRotate60Cv(v);
+    return v;
+};
+
+// function readonlify<TOut, TArgs extends any[]>(
+//     f: (out: TOut, ...args: TArgs) => TOut,
+//     create: () => TOut
+// ) {
+//     return (...args: TArgs) => f(create(), ...args);
+// }
+function v(d) {
+    const vd = {
+        from: (...v) => [...v],
+        zero: () => Array.from({ length: d }, () => 0),
+        ones: () => Array.from({ length: d }, () => 1),
+        one: (i) => Array.from({ length: d }, (_, _i) => Number(i === _i)),
+        add: (a, b) => a.map((_, i) => a[i] + b[i]),
+        scale: (a, b) => a.map((_, i) => a[i] * b),
+        dot: (a, b) => a.map((_, i) => a[i] * b[i]).reduce((acc, v) => acc + v, 0),
+        eqStrict: (a, b) => a.every((_, i) => a[i] === b[i]),
+        negate: (a) => vd.scale(a, -1),
+        sub: (a, b) => vd.add(a, vd.negate(b)),
+        lenSq: (v) => vd.dot(v, v),
+        len: (v) => Math.sqrt(vd.lenSq(v)),
+        norm: (v) => vd.scale(v, 1 / vd.len(v)),
+        distSq: (a, b) => vd.lenSq(vd.sub(b, a)),
+        dist: (a, b) => vd.len(vd.sub(b, a)),
+        eq: (a, b, eps = 0) => vd.dist(a, b) <= eps,
+    };
+    return vd;
+}
+const v3 = v(3);
+
+function getRadiusKind(hexCubeVector) {
+    const v = hexCubeVector;
+    const l = cubeLen(v);
+    if (l === 1) {
+        return 0;
+    }
+    if (l === 2) {
+        const hasZero = !(v[0] * v[1] * v[2]);
+        return hasZero ? 1 : 2;
+    }
+}
+const getRadiusDirection = [
+    (r) => r,
+    (r) => v3.scale(r, 1 / 2),
+    (r) => v3.scale(v3.add(r, cubeRotate60Cv(r)), 1 / 3)
+];
+function isRuleAplicable(rule, source, target) {
+    if (!target) {
+        return rule.sourceKind === source.kind;
+    }
+    if (rule.sourceKind !== source.kind || rule.targetKind !== target.kind) {
+        return false;
+    }
+    return rule.radiusKind === undefined
+        ? v3.eq(target.pos, source.pos)
+        : getRadiusKind(v3.sub(target.pos, source.pos)) === rule.radiusKind;
+}
+const calcForces = (forceRules, space) => space.map((target) => ({
+    target,
+    vec: space
+        .flatMap((source) => {
+        const r = v3.sub(target.pos, source.pos);
+        const radiusKind = getRadiusKind(r);
+        return forceRules
+            .filter(rule => isRuleAplicable(rule, source, target))
+            .map((f) => cubeRotate60CvTimes(getRadiusDirection[radiusKind](r), f.directionKind));
+    })
+        .reduce((sum, v) => v3.add(sum, v), [0, 0, 0])
+}));
+const calcProducees = (producerRules, space) => space.flatMap(token => producerRules
+    .filter(r => r.sourceKind === token.kind)
+    .map(r => ({ pos: token.pos, kind: r.targetKind })));
+const calcConsumees = (consumerRules, space) => apply(zip3(space, space, consumerRules), pipe(filter(([source, target, rule]) => isRuleAplicable(rule, source, target)), map(([source, target, rule]) => target)));
+function* forEachPair(arr) {
+    for (let i = 0; i < arr.length; i++) {
+        for (let j = i + 1; j < arr.length; j++) {
+            yield [arr[i], arr[j]];
+        }
+    }
+}
+const calcCollisions = (space) => [...forEachPair(space)].filter(([t1, t2]) => v3.eq(t1.pos, t2.pos));
+const calcStep = (ruleSet, space) => {
+    const producees = [...calcProducees(ruleSet.producerRules, space)];
+    const nextSpace = [...space, ...producees].map(t => _.cloneDeep(t));
+    const forces = calcForces(ruleSet.forceRules, nextSpace);
+    for (const force of forces) {
+        force.target.pos = v3.add(force.target.pos, force.vec);
+    }
+    const consumees = [...calcConsumees(ruleSet.consumerRules, nextSpace)];
+    const nextSpace1 = nextSpace.filter(token => consumees.indexOf(token) < 0);
+    const collisions = calcCollisions(nextSpace1);
+    return {
+        ruleSet,
+        space,
+        producees,
+        nextSpace,
+        forces,
+        consumees,
+        nextSpace1,
+        collisions,
+    };
+};
+const simulate = (ruleSet, space) => calcStep(ruleSet, space).nextSpace1;
 
 function unwrapExports (x) {
 	return x && x.__esModule && Object.prototype.hasOwnProperty.call(x, 'default') ? x['default'] : x;
@@ -359,135 +477,13 @@ immutabilityHelper.Context;
 immutabilityHelper.isEquals;
 immutabilityHelper.extend;
 
-const SQRT3 = Math.sqrt(3);
-const axialToFlatCart = ([q, r]) => [(SQRT3 / 2) * q, (1 / 2) * q + r];
-const axialToCube = ([q, r]) => [q, r, -q - r];
-const cubeLen = ([q, r, s]) => (Math.abs(q) + Math.abs(r) + Math.abs(s)) / 2;
-const cubeFlatNorth = [0, 1, -1];
-const cubeRotate60Cv = ([q, r, s]) => [-r, -s, -q];
-const cubeRotate60CvTimes = (v, times) => {
-    times %= 6;
-    if (times < 0)
-        times += 6;
-    for (let i = 0; i < times; i++)
-        v = cubeRotate60Cv(v);
-    return v;
-};
-
-// function readonlify<TOut, TArgs extends any[]>(
-//     f: (out: TOut, ...args: TArgs) => TOut,
-//     create: () => TOut
-// ) {
-//     return (...args: TArgs) => f(create(), ...args);
-// }
-function v(d) {
-    const vd = {
-        from: (...v) => [...v],
-        zero: () => Array.from({ length: d }, () => 0),
-        ones: () => Array.from({ length: d }, () => 1),
-        one: (i) => Array.from({ length: d }, (_, _i) => Number(i === _i)),
-        add: (a, b) => a.map((_, i) => a[i] + b[i]),
-        scale: (a, b) => a.map((_, i) => a[i] * b),
-        dot: (a, b) => a.map((_, i) => a[i] * b[i]).reduce((acc, v) => acc + v, 0),
-        eqStrict: (a, b) => a.every((_, i) => a[i] === b[i]),
-        negate: (a) => vd.scale(a, -1),
-        sub: (a, b) => vd.add(a, vd.negate(b)),
-        lenSq: (v) => vd.dot(v, v),
-        len: (v) => Math.sqrt(vd.lenSq(v)),
-        norm: (v) => vd.scale(v, 1 / vd.len(v)),
-        distSq: (a, b) => vd.lenSq(vd.sub(b, a)),
-        dist: (a, b) => vd.len(vd.sub(b, a)),
-        eq: (a, b, eps = 0) => vd.dist(a, b) <= eps,
-    };
-    return vd;
-}
-const v3 = v(3);
-
-function getRadiusKind(hexCubeVector) {
-    const v = hexCubeVector;
-    const l = cubeLen(v);
-    if (l === 1) {
-        return 0;
-    }
-    if (l === 2) {
-        const hasZero = !(v[0] * v[1] * v[2]);
-        return hasZero ? 1 : 2;
-    }
-}
-const getRadiusDirection = [
-    (r) => r,
-    (r) => v3.scale(r, 1 / 2),
-    (r) => v3.scale(v3.add(r, cubeRotate60Cv(r)), 1 / 3)
+// todo: Support Adding your own commands
+// https://www.npmjs.com/package/immutability-helper#adding-your-own-commands
+const useUpdate = (initialState) => useReducer((update), initialState);
+const useSubUpdate = ([state, updState], key) => [
+    state[key],
+    (spec) => updState({ [key]: spec })
 ];
-function isRuleAplicable(rule, source, target) {
-    if (!target) {
-        return rule.sourceKind === source.kind;
-    }
-    if (rule.sourceKind !== source.kind || rule.targetKind !== target.kind) {
-        return false;
-    }
-    return rule.radiusKind === undefined
-        ? v3.eq(target.pos, source.pos)
-        : getRadiusKind(v3.sub(target.pos, source.pos)) === rule.radiusKind;
-}
-const calcForces = (forceRules, space) => space.map((target) => ({
-    target,
-    vec: space
-        .flatMap((source) => {
-        const r = v3.sub(target.pos, source.pos);
-        const radiusKind = getRadiusKind(r);
-        return forceRules
-            .filter(rule => isRuleAplicable(rule, source, target))
-            .map((f) => cubeRotate60CvTimes(getRadiusDirection[radiusKind](r), f.directionKind));
-    })
-        .reduce((sum, v) => v3.add(sum, v), [0, 0, 0])
-}));
-const calcProducees = (producerRules, space) => space.flatMap(token => producerRules
-    .filter(r => r.sourceKind === token.kind)
-    .map(r => ({ pos: token.pos, kind: r.targetKind })));
-const calcConsumees = (consumerRules, space) => apply(zip3(space, space, consumerRules), pipe(filter(([source, target, rule]) => isRuleAplicable(rule, source, target)), map(([source, target, rule]) => target)));
-function* forEachPair(arr) {
-    for (let i = 0; i < arr.length; i++) {
-        for (let j = i + 1; j < arr.length; j++) {
-            yield [arr[i], arr[j]];
-        }
-    }
-}
-const calcCollisions = (space) => [...forEachPair(space)].filter(([t1, t2]) => v3.eq(t1.pos, t2.pos));
-const calcStep = (ruleSet, space) => {
-    const producees = [...calcProducees(ruleSet.producerRules, space)];
-    const nextSpace = [...space, ...producees].map(t => _.cloneDeep(t));
-    const forces = calcForces(ruleSet.forceRules, nextSpace);
-    for (const force of forces) {
-        force.target.pos = v3.add(force.target.pos, force.vec);
-    }
-    const consumees = [...calcConsumees(ruleSet.consumerRules, nextSpace)];
-    const nextSpace1 = nextSpace.filter(token => consumees.indexOf(token) < 0);
-    const collisions = calcCollisions(nextSpace1);
-    return {
-        ruleSet,
-        space,
-        producees,
-        nextSpace,
-        forces,
-        consumees,
-        nextSpace1,
-        collisions,
-    };
-};
-const simulate = (ruleSet, space) => calcStep(ruleSet, space).nextSpace1;
-
-function useRxSubscribe(sourceOrSourceFactory, inputs) {
-    const [state, setState] = useState();
-    useEffect(() => {
-        const source = ("subscribe" in sourceOrSourceFactory)
-            ? sourceOrSourceFactory
-            : sourceOrSourceFactory();
-        const s = source.subscribe(setState);
-        return () => s.unsubscribe();
-    }, inputs);
-    return state;
-}
 
 function* hgCircleDots(radius, center = [0, 0, 0]) {
     if (radius === 0) {
@@ -546,11 +542,11 @@ const _css$3 = css `
         fill: transparent;
     }
 `;
-function TokenKindEditor({ c, value, valueCap, onInput, }) {
-    return e("circle", Object.assign({ className: cx(_css$3, css `& { fill: var(--kindColor${value}) }`) }, cxy(c), { onMouseDown: (ev) => {
+function TokenKindEditor({ c, kindCap, kindUpdater: [kind, updKind], }) {
+    return e("circle", Object.assign({ className: cx(_css$3, css `& { fill: var(--kindColor${kind}) }`) }, cxy(c), { onMouseDown: (ev) => {
             if (ev.button === 0 || ev.button === 2) {
                 const dx = -(ev.button - 1);
-                onInput(loop$1(value + dx, valueCap));
+                updKind({ $set: loop$1(kind + dx, kindCap) });
             }
             ev.preventDefault();
         }, onContextMenu: ev => ev.preventDefault() }));
@@ -646,17 +642,16 @@ const _css$1 = css `
     }
 `;
 const dots = [...hgDiscDots(3)];
-function ForceRuleEditor({ kindCount, value, onInput, }) {
-    const upd = (x) => onInput(update(value, x));
+function ForceRuleEditor({ kindCount, updater: [value, upd], }) {
     const radiusKindSet = (x) => upd({ radiusKind: { $set: x } });
     const directionKindAdd = (x) => upd({ directionKind: { $set: loop(value.directionKind + x, 6) } });
     return e("svg", Object.assign({ className: cx("ForceRuleEditor", _css$1), viewBox: "-2.7 -3.1 5.4 7.8" }, { children: [e(ForceMarkers, { kindCount: kindCount }), dots.map(pos => {
                 if (v3.lenSq(pos) === 0) {
-                    return e(TokenKindEditor, { c: pos, value: value.sourceKind, valueCap: kindCount, onInput: value => upd({ sourceKind: { $set: value } }) });
+                    return e(TokenKindEditor, { c: pos, kindUpdater: useSubUpdate([value, upd], "sourceKind"), kindCap: kindCount });
                 }
                 const rk = getRadiusKind(pos);
                 if (rk === value.radiusKind) {
-                    return e(TokenKindEditor, { c: pos, value: value.targetKind, valueCap: kindCount, onInput: value => upd({ targetKind: { $set: value } }) });
+                    return e(TokenKindEditor, { c: pos, kindUpdater: useSubUpdate([value, upd], "targetKind"), kindCap: kindCount });
                 }
                 return e("circle", Object.assign({}, cxy(pos), { className: cx(_css$3), onMouseDown: (ev) => {
                         if (ev.button === 0 || ev.button === 2) {
@@ -697,12 +692,23 @@ const ListEditorStyles = {
         }
     `,
 };
-function ListEditor({ values, defaultValue, renderValueEditor, onInput, className, }) {
-    const upd = (x) => onInput(update(values, x));
-    return e("div", Object.assign({ className: cx("ListEditor", className) }, { children: [values.map((v, i) => e("div", Object.assign({ className: "listEditorEntry" }, { children: [renderValueEditor(v, (_0) => upd({ [i]: { $set: _0 } })), e("button", Object.assign({ className: "listEditorRemoveButton", onClick: () => upd({ $splice: [[i, 1]] }) }, { children: "\u00D7" }))] }))), e("button", Object.assign({ className: "listEditorAddButton", onClick: () => upd({ $push: [defaultValue] }) }, { children: "+" }))] }));
+function ListEditor({ valuesUpdater: [values, updValues], defaultValue, renderValueEditor, className, }) {
+    return e("div", Object.assign({ className: cx("ListEditor", className) }, { children: [values.map((v, i) => e("div", Object.assign({ className: "listEditorEntry" }, { children: [renderValueEditor(useSubUpdate([values, updValues], i)), e("button", Object.assign({ className: "listEditorRemoveButton", onClick: () => updValues({ $splice: [[i, 1]] }) }, { children: "\u00D7" }))] }))), e("button", Object.assign({ className: "listEditorAddButton", onClick: () => updValues({ $push: [defaultValue] }) }, { children: "+" }))] }));
 }
 
-function StepPlayer({ value: t, setValue: setT, }) {
+function useRxSubscribe(sourceOrSourceFactory, inputs) {
+    const [state, setState] = useState();
+    useEffect(() => {
+        const source = ("subscribe" in sourceOrSourceFactory)
+            ? sourceOrSourceFactory
+            : sourceOrSourceFactory();
+        const s = source.subscribe(setState);
+        return () => s.unsubscribe();
+    }, inputs);
+    return state;
+}
+
+function StepPlayer({ tState: [t, setT], }) {
     const fps = 30;
     const sps = 2;
     const [isTicking, setIsTicking] = useState(false);
@@ -776,7 +782,7 @@ const _css = css `
 `;
 function App() {
     const colorMap = colors;
-    const [ruleSet, setRuleSet] = useState(levelSetup1.ruleSet);
+    const [ruleSet, updRuleSet] = useUpdate(levelSetup1.ruleSet);
     const [initialSpace, setInitialState] = useState(levelSetup1.initialSpace);
     const [{ spacetime, t }, setState] = useState(() => ({
         spacetime: [initialSpace],
@@ -801,21 +807,21 @@ function App() {
     }));
     return e("div", Object.assign({ className: cx("App", { playing: !isEditor }, _css) }, { children: [e("h1", { children: isEditor
                     ? e(Fragment, { children: "Editor mode: can edit" })
-                    : e(Fragment, { children: "Player mode: reset \u23F9 to edit" }) }), e(ListEditor, { values: ruleSet.forceRules, defaultValue: {
+                    : e(Fragment, { children: "Player mode: reset \u23F9 to edit" }) }), e(ListEditor, { valuesUpdater: useSubUpdate([ruleSet, updRuleSet], "forceRules"), defaultValue: {
                     sourceKind: 0,
                     targetKind: 1,
                     radiusKind: 1,
                     directionKind: 0
-                }, renderValueEditor: (v, onInput) => e(ForceRuleEditor, { kindCount: colorMap.length, value: v, onInput: onInput }), onInput: (forceRules) => setRuleSet(ruleSet => update(ruleSet, { forceRules: { $set: forceRules } })), className: ListEditorStyles.boxes }), e("div", { children: ["producerRules: ", JSON.stringify(ruleSet.producerRules)] }), e("div", { children: ["consumerRules: ", JSON.stringify(ruleSet.consumerRules)] }), e(StepPlayer, { value: t, setValue: setT }), e(SpaceEditor, { kindCount: colorMap.length, value: space, setValue: isEditor ? setInitialState : noop, ruleSet: ruleSet, stepFrac: t - Math.trunc(t) }), step.collisions.length > 0 && e("div", Object.assign({ style: { color: "red" } }, { children: ["Has collisions: ", JSON.stringify(step.collisions.map(([{ pos }]) => pos))] })), e("button", Object.assign({ onClick: () => {
+                }, renderValueEditor: (updater) => e(ForceRuleEditor, { kindCount: colorMap.length, updater: updater }), className: ListEditorStyles.boxes }), e("div", { children: ["producerRules: ", JSON.stringify(ruleSet.producerRules)] }), e("div", { children: ["consumerRules: ", JSON.stringify(ruleSet.consumerRules)] }), e(StepPlayer, { tState: [t, setT] }), e(SpaceEditor, { kindCount: colorMap.length, value: space, setValue: isEditor ? setInitialState : noop, ruleSet: ruleSet, stepFrac: t - Math.trunc(t) }), step.collisions.length > 0 && e("div", Object.assign({ style: { color: "red" } }, { children: ["Has collisions: ", JSON.stringify(step.collisions.map(([{ pos }]) => pos))] })), e("button", Object.assign({ onClick: () => {
                     setSetupString(JSON.stringify({
                         ruleSet,
                         initialSpace,
                     }));
                 } }, { children: "Update setup string" })), e("input", { value: setupString, onInput: ev => setSetupString((ev.target).value) }), e("button", Object.assign({ onClick: () => __awaiter(this, void 0, void 0, function* () {
                     const setup = JSON.parse(setupString);
-                    setRuleSet(setup.ruleSet);
+                    updRuleSet({ $set: setup.ruleSet });
                     setInitialState(setup.initialSpace);
-                }) }, { children: "Parse setup string" })), e("div", { children: useRxSubscribe(() => rx.interval(20).pipe(rx.map(() => new Date().toISOString())), []) })] }));
+                }) }, { children: "Parse setup string" }))] }));
 }
 
 render(e(App, {}), document.body);

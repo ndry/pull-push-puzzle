@@ -1,16 +1,15 @@
 import { css, cx } from "@emotion/css";
-import * as rx from "rxjs";
 import * as _ from "lodash";
 import * as it from "./utils/it";
 import update from "immutability-helper";
 import { calcStep, RuleSet, simulate, Space } from "./simulation";
-import { useRxSubscribe } from "./react-utils/useRxSubscribe";
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useReducer, useState } from "preact/hooks";
+import { useUpdate, useSubUpdate } from "./react-utils/useUpdate";
 import { ForceRuleEditor } from "./ForceRuleEditor";
 import { ListEditor, ListEditorStyles } from "./react-utils/ListEditor";
 import { SpaceEditor } from "./SpaceEditor";
 import { StepPlayer } from "./StepPlayer";
-import { pipe, apply } from "./utils/pipe";
+import { apply } from "./utils/pipe";
 import { levelSetup1 } from "./levelSetup1";
 
 const sim = (...args: Parameters<typeof simulate>) =>
@@ -48,11 +47,9 @@ const _css = css`
     }
 `;
 
-
-
 export function App() {
     const colorMap = colors;
-    const [ruleSet, setRuleSet] = useState(levelSetup1.ruleSet);
+    const [ruleSet, updRuleSet] = useUpdate(levelSetup1.ruleSet);
     const [initialSpace, setInitialState] = useState(levelSetup1.initialSpace);
 
     const [{ spacetime, t }, setState] = useState(() => ({
@@ -86,23 +83,21 @@ export function App() {
             ? <>Editor mode: can edit</>
             : <>Player mode: reset &#x23F9; to edit</>}</h1>
         <ListEditor
-            values={ruleSet.forceRules}
+            valuesUpdater={useSubUpdate([ruleSet, updRuleSet], "forceRules")}
             defaultValue={{
                 sourceKind: 0,
                 targetKind: 1,
                 radiusKind: 1,
                 directionKind: 0
             }}
-            renderValueEditor={(v, onInput) => <ForceRuleEditor
+            renderValueEditor={(updater) => <ForceRuleEditor
                 kindCount={colorMap.length}
-                value={v}
-                onInput={onInput}
+                updater={updater}
             />}
-            onInput={(forceRules) => setRuleSet(ruleSet => update(ruleSet, { forceRules: { $set: forceRules } }))}
             className={ListEditorStyles.boxes} />
         <div>producerRules: {JSON.stringify(ruleSet.producerRules)}</div>
         <div>consumerRules: {JSON.stringify(ruleSet.consumerRules)}</div>
-        <StepPlayer value={t} setValue={setT} />
+        <StepPlayer tState={[t, setT]} />
         <SpaceEditor
             kindCount={colorMap.length}
             value={space}
@@ -118,14 +113,14 @@ export function App() {
                 initialSpace,
             }));
         }}>Update setup string</button>
-        <input 
+        <input
             value={setupString}
             onInput={ev => setSetupString(((ev.target) as HTMLInputElement).value)} />
         <button onClick={async () => {
             const setup = JSON.parse(setupString) as typeof levelSetup1;
-            setRuleSet(setup.ruleSet);
+            updRuleSet({ $set: setup.ruleSet });
             setInitialState(setup.initialSpace);
         }}>Parse setup string</button>
-        <div>{useRxSubscribe(() => rx.interval(20).pipe(rx.map(() => new Date().toISOString())), [])}</div>
+        {/* <div>{useRxSubscribe(() => rx.interval(20).pipe(rx.map(() => new Date().toISOString())), [])}</div> */}
     </div>
 }

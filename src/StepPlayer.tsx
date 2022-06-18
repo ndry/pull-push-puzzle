@@ -5,10 +5,9 @@ import { useRxSubscribe } from "./react-utils/useRxSubscribe";
 
 
 export function StepPlayer({
-    value: t, setValue: setT,
+    tState: [t, setT],
 }: {
-    value: number;
-    setValue: (value: number) => void;
+    tState: [number, (value: number) => void],
 }) {
     const fps = 30;
     const sps = 2;

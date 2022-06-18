@@ -1,7 +1,7 @@
 import { v3 } from "./utils/v";
 import { cxy } from "./utils/hgx";
 import { cx, css } from "@emotion/css";
-import { apply } from "./utils/pipe";
+import { Updater } from "./react-utils/useUpdate";
 
 
 const loop = (v: number, cap: number) => (v % cap) + ((v < 0) ? cap : 0);
@@ -20,20 +20,19 @@ export const _css = css`
 `;
 
 export function TokenKindEditor({
-    c, value, valueCap, onInput,
+    c, kindCap, kindUpdater: [kind, updKind],
 }: {
     c: v3;
-    value: number;
-    valueCap: number;
-    onInput: (value: number) => unknown;
+    kindUpdater: Updater<number>,
+    kindCap: number;
 }) {
     return <circle
-    className={cx(_css, css`& { fill: var(--kindColor${value}) }`)}
+        className={cx(_css, css`& { fill: var(--kindColor${kind}) }`)}
         {...cxy(c)}
         onMouseDown={(ev) => {
             if (ev.button === 0 || ev.button === 2) {
                 const dx = -(ev.button - 1);
-                onInput(loop(value + dx, valueCap));
+                updKind({ $set: loop(kind + dx, kindCap) });
             }
             ev.preventDefault();
         }}
@@ -49,9 +48,9 @@ export function TokenKindUndefEditor({
     onInput: (value: number | undefined) => unknown;
 }) {
     return <circle
-        className={cx(_css, 
-            value !== undefined 
-                ? css`& { fill: var(--kindColor${value}) }` 
+        className={cx(_css,
+            value !== undefined
+                ? css`& { fill: var(--kindColor${value}) }`
                 : undefined)}
         {...cxy(c)}
         onMouseDown={(ev) => {
@@ -64,6 +63,6 @@ export function TokenKindUndefEditor({
             }
             ev.preventDefault();
         }}
-        onMouseEnter={() => console.log("Mouse over coords (hex cube)",c)}
+        onMouseEnter={() => console.log("Mouse over coords (hex cube)", c)}
         onContextMenu={ev => ev.preventDefault()} />;
 }

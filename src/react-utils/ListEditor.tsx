@@ -1,5 +1,5 @@
 import { css, cx } from "@emotion/css";
-import update from "immutability-helper";
+import { Updater, useSubUpdate } from "./useUpdate";
 export type Element = import("preact").JSX.Element;
 
 export const ListEditorStyles = {
@@ -22,23 +22,25 @@ export const ListEditorStyles = {
     `,
 }
 
-
-
 export function ListEditor<T>({
-    values, defaultValue, renderValueEditor, onInput, className,
+    valuesUpdater: [values, updValues], defaultValue, renderValueEditor, className,
 }: {
-    values: T[];
+    valuesUpdater: Updater<T[]>,
     defaultValue: T;
-    renderValueEditor: (value: T, onInput: (value: T) => unknown) => Element;
-    onInput: (values: T[]) => unknown;
+    renderValueEditor: ([value, updValue]: Updater<T>) => Element;
     className?: string;
 }) {
-    const upd = (x: Parameters<typeof update<typeof values>>[1]) => onInput(update(values, x));
     return <div className={cx("ListEditor", className)}>
         {values.map((v, i) => <div className="listEditorEntry">
-            {renderValueEditor(v, (_0) => upd({ [i]: { $set: _0 } }))}
-            <button className="listEditorRemoveButton" onClick={() => upd({ $splice: [[i, 1]] })}>&times;</button>
+            {renderValueEditor(useSubUpdate([values, updValues], i))}
+            <button 
+                className="listEditorRemoveButton" 
+                onClick={() => updValues({ $splice: [[i, 1]] })}
+            >&times;</button>
         </div>)}
-        <button className="listEditorAddButton" onClick={() => upd({ $push: [defaultValue] })}>+</button>
+        <button 
+            className="listEditorAddButton" 
+            onClick={() => updValues({ $push: [defaultValue] })}
+        >+</button>
     </div>;
 }
