@@ -1,6 +1,7 @@
 import { v3 } from "./utils/v";
 import { cxy } from "./utils/hgx";
-import { cx } from "@emotion/css";
+import { cx, css } from "@emotion/css";
+import { apply } from "./utils/pipe";
 
 
 const loop = (v: number, cap: number) => (v % cap) + ((v < 0) ? cap : 0);
@@ -8,6 +9,15 @@ const addLoopUndef = (v: number | undefined, dv: number, cap: number) => {
     const v1 = loop((v ?? cap) + dv, cap + 1);
     return (v1 === cap) ? undefined : v1;
 };
+
+export const _css = css`
+    & {
+        stroke: black;
+        stroke-width: 0.01px;
+        r: 0.3px;
+        fill: transparent;
+    }
+`;
 
 export function TokenKindEditor({
     c, value, valueCap, onInput,
@@ -18,7 +28,7 @@ export function TokenKindEditor({
     onInput: (value: number) => unknown;
 }) {
     return <circle
-        className={cx("Token", `Token${value}`)}
+    className={cx(_css, css`& { fill: var(--kindColor${value}) }`)}
         {...cxy(c)}
         onMouseDown={(ev) => {
             if (ev.button === 0 || ev.button === 2) {
@@ -39,11 +49,10 @@ export function TokenKindUndefEditor({
     onInput: (value: number | undefined) => unknown;
 }) {
     return <circle
-        className={cx({
-            "Token": value !== undefined,
-            [`Token${value}`]: value !== undefined,
-            "cell": value === undefined,
-        },)}
+        className={cx(_css, 
+            value !== undefined 
+                ? css`& { fill: var(--kindColor${value}) }` 
+                : undefined)}
         {...cxy(c)}
         onMouseDown={(ev) => {
             if (ev.button === 0 || ev.button === 2) {

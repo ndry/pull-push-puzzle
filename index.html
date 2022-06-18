@@ -9,7 +9,7 @@
 <link rel="modulepreload" href="https://unpkg.com/preact@10.7.2/hooks/dist/hooks.mjs"/>
 <link rel="modulepreload" href="https://unpkg.com/@esm-bundle/emotion@10.0.27/esm/emotion.min.js"/>
     <script type="module">import { options, Fragment, render } from 'preact';
-import { cx, css } from '@emotion/css';
+import { css, cx } from '@emotion/css';
 import * as rx from 'rxjs';
 import * as _ from 'lodash';
 import { useState, useEffect } from 'preact/hooks';
@@ -50,10 +50,6 @@ const map = (f) => function* (s) { for (const x of s)
     yield f(x); };
 const flat = () => function* (s) { for (const x of s)
     yield* x; };
-const tap = (f) => function* (s) { for (const x of s) {
-    f(x);
-    yield x;
-} };
 const filter = (f) => function* (s) { for (const x of s)
     if (f(x))
         yield x; };
@@ -457,9 +453,10 @@ function* forEachPair(arr) {
         }
     }
 }
+const calcCollisions = (space) => [...forEachPair(space)].filter(([t1, t2]) => v3.eq(t1.pos, t2.pos));
 const calcStep = (ruleSet, space) => {
     const producees = [...calcProducees(ruleSet.producerRules, space)];
-    const nextSpace = [...producees, ...space].map(t => _.cloneDeep(t));
+    const nextSpace = [...space, ...producees].map(t => _.cloneDeep(t));
     const forces = calcForces(ruleSet.forceRules, nextSpace);
     for (const force of forces) {
         force.target.pos = v3.add(force.target.pos, force.vec);
@@ -478,19 +475,7 @@ const calcStep = (ruleSet, space) => {
         collisions,
     };
 };
-const calcCollisions = (space) => [...forEachPair(space)].filter(([t1, t2]) => v3.eq(t1.pos, t2.pos));
-const simulate = (ruleSet, space) => {
-    const newSpace = [
-        ...calcProducees(ruleSet.producerRules, space),
-        ...space.map(t => _.cloneDeep(t)),
-    ];
-    const forces = calcForces(ruleSet.forceRules, newSpace);
-    for (const force of forces) {
-        force.target.pos = v3.add(force.target.pos, force.vec);
-    }
-    const consumees = [...calcConsumees(ruleSet.consumerRules, newSpace)];
-    return newSpace.filter(token => consumees.indexOf(token) < 0);
-};
+const simulate = (ruleSet, space) => calcStep(ruleSet, space).nextSpace1;
 
 function useRxSubscribe(sourceOrSourceFactory, inputs) {
     const [state, setState] = useState();
@@ -553,8 +538,16 @@ const addLoopUndef = (v, dv, cap) => {
     const v1 = loop$1((v !== null && v !== void 0 ? v : cap) + dv, cap + 1);
     return (v1 === cap) ? undefined : v1;
 };
+const _css$3 = css `
+    & {
+        stroke: black;
+        stroke-width: 0.01px;
+        r: 0.3px;
+        fill: transparent;
+    }
+`;
 function TokenKindEditor({ c, value, valueCap, onInput, }) {
-    return e("circle", Object.assign({ className: cx("Token", `Token${value}`) }, cxy(c), { onMouseDown: (ev) => {
+    return e("circle", Object.assign({ className: cx(_css$3, css `& { fill: var(--kindColor${value}) }`) }, cxy(c), { onMouseDown: (ev) => {
             if (ev.button === 0 || ev.button === 2) {
                 const dx = -(ev.button - 1);
                 onInput(loop$1(value + dx, valueCap));
@@ -563,11 +556,9 @@ function TokenKindEditor({ c, value, valueCap, onInput, }) {
         }, onContextMenu: ev => ev.preventDefault() }));
 }
 function TokenKindUndefEditor({ c, value, valueCap, onInput, }) {
-    return e("circle", Object.assign({ className: cx({
-            "Token": value !== undefined,
-            [`Token${value}`]: value !== undefined,
-            "cell": value === undefined,
-        }) }, cxy(c), { onMouseDown: (ev) => {
+    return e("circle", Object.assign({ className: cx(_css$3, value !== undefined
+            ? css `& { fill: var(--kindColor${value}) }`
+            : undefined) }, cxy(c), { onMouseDown: (ev) => {
             if (ev.button === 0 || ev.button === 2) {
                 const dx = -(ev.button - 1);
                 onInput(addLoopUndef(value, dx, valueCap));
@@ -579,29 +570,95 @@ function TokenKindUndefEditor({ c, value, valueCap, onInput, }) {
         }, onMouseEnter: () => console.log("Mouse over coords (hex cube)", c), onContextMenu: ev => ev.preventDefault() }));
 }
 
-const loop = (v, cap) => (v % cap) + ((v < 0) ? cap : 0);
 const _css$2 = css `
+    & {
+        height: 600px;
+        border: 1px solid;
+        display: block;
+    }
+`;
+const ForceMarkers = ({ kindCount }) => e(Fragment, { children: apply(inf(), pipe(take(kindCount), map(i => e("marker", Object.assign({ id: `forceArrow${i}`, className: css `& path { fill: var(--kindColor${i}) }`, viewBox: "0 -5 10 10", refX: "10", orient: "auto" }, { children: e("path", { d: "M0,-5L10,0L0,5" }) }))), toArray())) });
+const forceCss = (kind) => css `& {
+    stroke-width: 0.1px;
+    stroke: var(--kindColor${kind});
+    marker-end: url(#forceArrow${kind})
+}`;
+function SpaceEditor({ kindCount, value, setValue: onInput, ruleSet, stepFrac, }) {
+    const step = calcStep(ruleSet, value);
+    const upd = (x) => onInput(update(value, x));
+    // phases:
+    // stepFrac < t0 -- editor + still
+    const t0 = 0.2;
+    const p0 = stepFrac >= 0 && stepFrac < t0;
+    // stepFrac < t1 -- produce
+    const t1 = 0.4;
+    const s1 = Math.min(1, Math.max(0, (stepFrac - t0) / (t1 - t0)));
+    const p1 = stepFrac >= t0 && stepFrac < t1;
+    // stepFrac < t2 -- move
+    const t2 = 0.8;
+    const s2 = Math.min(1, Math.max(0, (stepFrac - t1) / (t2 - t1)));
+    const p2 = stepFrac >= t1 && stepFrac < t2;
+    const s3 = Math.min(1, Math.max(0, (stepFrac - t2) / (1 - t2)));
+    const p3 = stepFrac >= t2;
+    // stepFrac < 1 -- consume
+    const PhaseEditor = () => e(Fragment, { children: [(p0 || p1) && step.space.map(({ pos, kind }, i) => e(TokenKindUndefEditor, { c: pos, value: kind, valueCap: kindCount, onInput: (newKind => {
+                    if (newKind === undefined) {
+                        upd({ $splice: [[i, 1]] });
+                    }
+                    else {
+                        upd({ [i]: { kind: { $set: newKind } } });
+                    }
+                }) })), (p0 || p1) && step.producees.map(({ pos, kind }) => e("circle", Object.assign({}, cxy(pos), { r: 0.1 + s1 * 0.2, className: cx(css `& {
+                fill: var(--kindColor${kind});
+            }`), "pointer-events": "none" }))), p2 && step.forces.map(({ target: { pos, kind }, vec }) => e("circle", Object.assign({}, cxy(v3.add(pos, v3.scale(vec, -1 + s2))), { r: 0.3, className: cx(css `& {
+                fill: var(--kindColor${kind});
+                stroke: black;
+                stroke-width: 0.01px;
+            }`), "pointer-events": "none" }))), p3 && step.nextSpace1.map(({ pos, kind }) => e("circle", Object.assign({}, cxy(pos), { r: 0.3, className: cx(css `& {
+                fill: var(--kindColor${kind});
+                stroke: black;
+                stroke-width: 0.01px;
+            }`), "pointer-events": "none" }))), p3 && step.consumees.map(({ pos, kind }) => e("circle", Object.assign({}, cxy(pos), { r: 0.3 - s3 * 0.2, className: cx(css `& {
+                fill: var(--kindColor${kind});
+                stroke: black;
+                stroke-width: 0.01px;
+            }`), "pointer-events": "none" }))), step.forces.map(({ target: { kind, pos }, vec }) => v3.len(vec) > 0
+                ? e("line", Object.assign({ className: cx(forceCss(kind)) }, xy12(v3.sub(pos, vec), pos), { "pointer-events": "none" }))
+                : e(Fragment, {})), step.consumees.map(({ pos, kind }) => e("circle", Object.assign({}, cxy(pos), { className: cx(css `& {
+                r: 0.1px;
+                stroke-width: 0.04px;
+                fill: transparent;
+                stroke: var(--kindColor${kind});
+            }`), "pointer-events": "none" }))), step.collisions.map(collision => e(Fragment, { children: e("text", Object.assign({}, xy(collision[0].pos), { "font-size": "0.4px", "pointer-events": "none" }, { children: [". Collision: ", JSON.stringify(collision)] })) }))] });
+    return e("svg", Object.assign({ className: cx("SpaceEditor", _css$2), viewBox: "-10 -10 20 20" }, { children: [e(ForceMarkers, { kindCount: kindCount }), [...hgDiscDots(10)].map(pos => e(TokenKindUndefEditor, { c: pos, value: undefined, valueCap: kindCount, onInput: (newKind => {
+                    if (newKind !== undefined) {
+                        upd({ $push: [{ kind: newKind, pos }] });
+                    }
+                }) })), e(PhaseEditor, {})] }));
+}
+
+const loop = (v, cap) => (v % cap) + ((v < 0) ? cap : 0);
+const _css$1 = css `
     & {
         height: 200px;
         border: 1px solid;
         display: block;
     }
 `;
-function ForceRuleEditor({ colorMap, value, onInput, }) {
+const dots = [...hgDiscDots(3)];
+function ForceRuleEditor({ kindCount, value, onInput, }) {
     const upd = (x) => onInput(update(value, x));
     const radiusKindSet = (x) => upd({ radiusKind: { $set: x } });
     const directionKindAdd = (x) => upd({ directionKind: { $set: loop(value.directionKind + x, 6) } });
-    const dots = [...hgDiscDots(3)];
-    const color = colorMap[value.targetKind];
-    return e("svg", Object.assign({ className: cx("ForceRuleEditor", _css$2), viewBox: "-2.7 -3.1 5.4 7.8" }, { children: [colorMap.map(color => e("marker", Object.assign({ id: `arrow_${color.substring(1)}`, viewBox: "0 -5 10 10", refX: "10", orient: "auto" }, { children: e("path", { fill: color, d: "M0,-5L10,0L0,5" }) }))), dots.map(pos => {
+    return e("svg", Object.assign({ className: cx("ForceRuleEditor", _css$1), viewBox: "-2.7 -3.1 5.4 7.8" }, { children: [e(ForceMarkers, { kindCount: kindCount }), dots.map(pos => {
                 if (v3.lenSq(pos) === 0) {
-                    return e(TokenKindEditor, { c: pos, value: value.sourceKind, valueCap: colorMap.length, onInput: value => upd({ sourceKind: { $set: value } }) });
+                    return e(TokenKindEditor, { c: pos, value: value.sourceKind, valueCap: kindCount, onInput: value => upd({ sourceKind: { $set: value } }) });
                 }
                 const rk = getRadiusKind(pos);
                 if (rk === value.radiusKind) {
-                    return e(TokenKindEditor, { c: pos, value: value.targetKind, valueCap: colorMap.length, onInput: value => upd({ targetKind: { $set: value } }) });
+                    return e(TokenKindEditor, { c: pos, value: value.targetKind, valueCap: kindCount, onInput: value => upd({ targetKind: { $set: value } }) });
                 }
-                return e("circle", Object.assign({}, cxy(pos), { className: cx("cell"), onMouseDown: (ev) => {
+                return e("circle", Object.assign({}, cxy(pos), { className: cx(_css$3), onMouseDown: (ev) => {
                         if (ev.button === 0 || ev.button === 2) {
                             if (rk !== undefined) {
                                 radiusKindSet(rk);
@@ -610,16 +667,15 @@ function ForceRuleEditor({ colorMap, value, onInput, }) {
                         ev.preventDefault();
                     }, onContextMenu: ev => ev.preventDefault() }));
             }), dots.filter(pos => getRadiusKind(pos) === value.radiusKind).map(pos => {
-                const color = colorMap[value.targetKind];
                 const dir = getRadiusDirection[getRadiusKind(pos)](pos);
-                return e("line", Object.assign({ stroke: color, "stroke-width": "0.1" }, xy12(pos, v3.add(pos, cubeRotate60CvTimes(dir, value.directionKind))), { "marker-end": `url(#arrow_${color.substring(1)})`, "pointer-events": "none" }));
-            }), e("g", Object.assign({ transform: "translate(0, 3.55)" }, { children: [e("circle", { className: cx("cell"), onMouseDown: ev => {
+                return e("line", Object.assign({ className: cx(forceCss(value.targetKind)) }, xy12(pos, v3.add(pos, cubeRotate60CvTimes(dir, value.directionKind))), { "pointer-events": "none" }));
+            }), e("g", Object.assign({ transform: "translate(0, 3.55)" }, { children: [e("circle", { className: cx(_css$3), onMouseDown: ev => {
                             if (ev.button === 0 || ev.button === 2) {
                                 const dx = -(ev.button - 1);
                                 directionKindAdd(dx);
                             }
                             ev.preventDefault();
-                        }, onContextMenu: ev => ev.preventDefault() }), e("line", Object.assign({ stroke: color, "stroke-width": "0.1" }, xy12([0, 0], cubeRotate60CvTimes(cubeFlatNorth, value.directionKind)), { "marker-end": `url(#arrow_${color.substring(1)})`, "pointer-events": "none" }))] }))] }));
+                        }, onContextMenu: ev => ev.preventDefault() }), e("line", Object.assign({ className: cx(forceCss(value.targetKind)) }, xy12([0, 0], cubeRotate60CvTimes(cubeFlatNorth, value.directionKind)), { "pointer-events": "none" }))] }))] }));
 }
 
 const ListEditorStyles = {
@@ -646,44 +702,28 @@ function ListEditor({ values, defaultValue, renderValueEditor, onInput, classNam
     return e("div", Object.assign({ className: cx("ListEditor", className) }, { children: [values.map((v, i) => e("div", Object.assign({ className: "listEditorEntry" }, { children: [renderValueEditor(v, (_0) => upd({ [i]: { $set: _0 } })), e("button", Object.assign({ className: "listEditorRemoveButton", onClick: () => upd({ $splice: [[i, 1]] }) }, { children: "\u00D7" }))] }))), e("button", Object.assign({ className: "listEditorAddButton", onClick: () => upd({ $push: [defaultValue] }) }, { children: "+" }))] }));
 }
 
-const _css$1 = css `
-    & {
-        height: 600px;
-        border: 1px solid;
-        display: block;
-    }
-`;
-function SpaceEditor({ kindCount, value, setValue: onInput, ruleSet, }) {
-    const step = calcStep(ruleSet, value);
-    const upd = (x) => onInput(update(value, x));
-    return e("svg", Object.assign({ className: cx("SpaceEditor", _css$1), viewBox: "-10 -10 20 20" }, { children: [apply(inf(), pipe(take(kindCount), map(i => e("marker", Object.assign({ id: `forceArrow${i}`, viewBox: "0 -5 10 10", refX: "10", orient: "auto" }, { children: e("path", { d: "M0,-5L10,0L0,5" }) }))), toArray())), "$", [...hgDiscDots(10)].map(pos => {
-                var _a;
-                const btnIndex = value.findIndex(b => v3.eq(b.pos, pos));
-                return e(TokenKindUndefEditor, { c: pos, value: (_a = value[btnIndex]) === null || _a === void 0 ? void 0 : _a.kind, valueCap: kindCount, onInput: (newKind => {
-                        if (newKind === undefined) {
-                            upd({ $splice: [[btnIndex, 1]] });
-                        }
-                        else if (btnIndex < 0) {
-                            upd({ $push: [{ kind: newKind, pos }] });
-                        }
-                        else {
-                            upd({ [btnIndex]: { kind: { $set: newKind } } });
-                        }
-                    }) });
-            }), "$", step.producees.map(token => e("circle", Object.assign({}, cxy(token.pos), { className: cx(`produceeToken produceeToken${token.kind}`), "pointer-events": "none" }))), "$", step.forces
-                .filter(({ vec }) => v3.len(vec) > 0)
-                .map(({ target, vec }) => e("line", Object.assign({ className: cx("force", "force" + target.kind) }, xy12(v3.sub(target.pos, vec), target.pos), { "pointer-events": "none" }))), "$", step.consumees.map(token => e("circle", Object.assign({}, cxy(token.pos), { className: cx(`consumeeToken consumeeToken${token.kind}`), "pointer-events": "none" }))), "$", step.collisions.map(collision => e(Fragment, { children: e("text", Object.assign({}, xy(collision[0].pos), { "font-size": "0.4px", "pointer-events": "none" }, { children: [". Collision: ", JSON.stringify(collision)] })) }))] }));
-}
-
-function FramePlayer({ value: t, setValue: setT, }) {
+function StepPlayer({ value: t, setValue: setT, }) {
+    const fps = 30;
+    const sps = 2;
     const [isTicking, setIsTicking] = useState(false);
     const autoplayT = useRxSubscribe(() => isTicking
-        ? rx.timer(100, 500).pipe(rx.map(i => t + i + 1))
+        ? rx.interval(1000 / fps).pipe(rx.timestamp(), rx.map(((start) => ({ timestamp }) => timestamp - start)(Date.now())), rx.map(ms => t + ms / 1000 * sps))
         : rx.from([undefined]), [isTicking]);
     if (isTicking && autoplayT !== undefined && autoplayT !== t) {
         setT(autoplayT);
     }
-    return e("div", Object.assign({ className: cx("FramePlayer") }, { children: [e("button", Object.assign({ onClick: () => { setIsTicking(false); setT(0); } }, { children: "\u23F9" })), e("button", Object.assign({ onClick: () => { setIsTicking(false); setT(Math.max(t - 1, 0)); } }, { children: "\u2759\u23F4" })), e("button", Object.assign({ onClick: () => { setIsTicking(!isTicking); } }, { children: isTicking ? e(Fragment, { children: "\u23F8" }) : e(Fragment, { children: "\u25B6" }) })), e("button", Object.assign({ onClick: () => { setIsTicking(false); setT(t + 1); } }, { children: "\u23F5\u2759" })), e("span", { children: [" Step: ", t + 1] })] }));
+    return e("div", Object.assign({ className: cx("FramePlayer") }, { children: [e("button", Object.assign({ onClick: () => {
+                    setIsTicking(false);
+                    setT(0);
+                } }, { children: "\u23F9" })), e("button", Object.assign({ onClick: () => {
+                    setIsTicking(false);
+                    setT(Math.max(t - 1, 0));
+                } }, { children: "\u2759\u23F4" })), e("button", Object.assign({ onClick: () => {
+                    setIsTicking(!isTicking);
+                } }, { children: isTicking ? e(Fragment, { children: "\u23F8" }) : e(Fragment, { children: "\u25B6" }) })), e("button", Object.assign({ onClick: () => {
+                    setIsTicking(false);
+                    setT(t + 1);
+                } }, { children: "\u23F5\u2759" })), e("span", { children: [" Step: ", t.toFixed(2)] })] }));
 }
 
 const levelSetup1 = {
@@ -707,7 +747,7 @@ const levelSetup1 = {
     ],
 };
 
-const sim = (...args) => apply(inf(), pipe(scan(s => simulate(args[0], s), args[1]), tap(console.log)));
+const sim = (...args) => apply(inf(), scan(s => simulate(args[0], s), args[1]));
 const ensureTime = (spacetime, t, ruleSet) => {
     if (t < spacetime.length) {
         return spacetime;
@@ -720,6 +760,7 @@ const noop = () => undefined;
 const colors = ["#ff0000", "#00ff00", "#0000ff", "#ffff00", "#00ffff", "#ff00ff"];
 const _css = css `
     & {
+        ${colors.map((color, i) => `--kindColor${i}: ${color};`).join("\n")}
         background-color: #efe;
     }
     &.playing {
@@ -732,43 +773,6 @@ const _css = css `
     &.playing>h1 {
         color: #44f;
     }
-    & .Token, & .cell {
-        stroke: black;
-        stroke-width: 0.01px;
-        r: 0.3px;
-    }
-    & .cell {
-        fill: transparent;
-    }
-    & .force {
-        stroke-width: 0.1px;
-    }
-    & .produceeToken {
-        r: 0.18px;
-    }
-    & .consumeeToken {
-        r: 0.18px;
-        stroke-width: 0.04px;
-        fill: transparent;
-    }
-    ${colors.map((color, i) => /*css*/ `
-        & .Token${i} {
-            fill: ${color};
-        }
-        & #forceArrow${i} path {
-            fill: ${color};
-        }
-        & .force${i} {
-            stroke: ${color};
-            marker-end: url(#forceArrow${i})
-        }
-        & .produceeToken${i} {
-            fill: ${color};
-        }
-        & .consumeeToken${i} {
-            stroke: ${color};
-        }
-    `).join("")}
 `;
 function App() {
     const colorMap = colors;
@@ -785,11 +789,11 @@ function App() {
         });
     }, [initialSpace, ruleSet]);
     const setT = (t) => setState(({ spacetime }) => ({
-        spacetime: ensureTime(spacetime, t, ruleSet),
+        spacetime: ensureTime(spacetime, Math.floor(t), ruleSet),
         t,
     }));
     const isEditor = t === 0;
-    const space = spacetime[t];
+    const space = spacetime[Math.floor(t)];
     const step = calcStep(ruleSet, space);
     const [setupString, setSetupString] = useState(JSON.stringify({
         ruleSet,
@@ -797,12 +801,12 @@ function App() {
     }));
     return e("div", Object.assign({ className: cx("App", { playing: !isEditor }, _css) }, { children: [e("h1", { children: isEditor
                     ? e(Fragment, { children: "Editor mode: can edit" })
-                    : e(Fragment, { children: "Player mode: reset \u23F9 player to first step to edit" }) }), e(ListEditor, { values: ruleSet.forceRules, defaultValue: {
+                    : e(Fragment, { children: "Player mode: reset \u23F9 to edit" }) }), e(ListEditor, { values: ruleSet.forceRules, defaultValue: {
                     sourceKind: 0,
                     targetKind: 1,
                     radiusKind: 1,
                     directionKind: 0
-                }, renderValueEditor: (v, onInput) => e(ForceRuleEditor, { colorMap: colorMap, value: v, onInput: onInput }), onInput: (forceRules) => setRuleSet(ruleSet => update(ruleSet, { forceRules: { $set: forceRules } })), className: ListEditorStyles.boxes }), e("div", { children: ["producerRules: ", JSON.stringify(ruleSet.producerRules)] }), e("div", { children: ["consumerRules: ", JSON.stringify(ruleSet.consumerRules)] }), e(FramePlayer, { value: t, setValue: setT }), e(SpaceEditor, { kindCount: colorMap.length, value: space, setValue: isEditor ? setInitialState : noop, ruleSet: ruleSet }), step.collisions.length > 0 && e("div", Object.assign({ style: { color: "red" } }, { children: ["Has collisions: ", JSON.stringify(step.collisions.map(([{ pos }]) => pos))] })), e("button", Object.assign({ onClick: () => {
+                }, renderValueEditor: (v, onInput) => e(ForceRuleEditor, { kindCount: colorMap.length, value: v, onInput: onInput }), onInput: (forceRules) => setRuleSet(ruleSet => update(ruleSet, { forceRules: { $set: forceRules } })), className: ListEditorStyles.boxes }), e("div", { children: ["producerRules: ", JSON.stringify(ruleSet.producerRules)] }), e("div", { children: ["consumerRules: ", JSON.stringify(ruleSet.consumerRules)] }), e(StepPlayer, { value: t, setValue: setT }), e(SpaceEditor, { kindCount: colorMap.length, value: space, setValue: isEditor ? setInitialState : noop, ruleSet: ruleSet, stepFrac: t - Math.trunc(t) }), step.collisions.length > 0 && e("div", Object.assign({ style: { color: "red" } }, { children: ["Has collisions: ", JSON.stringify(step.collisions.map(([{ pos }]) => pos))] })), e("button", Object.assign({ onClick: () => {
                     setSetupString(JSON.stringify({
                         ruleSet,
                         initialSpace,

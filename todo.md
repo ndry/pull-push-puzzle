@@ -3,8 +3,6 @@
 - pan n zoom?
 
 ## Todo from ohq
-- spawner impl -- a static position in space, that spawns buttons of a given kind (a condition to spawn?)
-- consumer impl -- a static position in space, that consumes all buttons of a given kind at that position
 - compose a cyclic task
 - write introduction and game goal text
 - correctly display multiple buttons on a single position

@@ -38,15 +38,11 @@ export type ForceRule = {
 export type ProducerRule = {
     sourceKind: number,
     targetKind: number,
-    // interval: number,
-    // check: boolean,
 }
 
 export type ConsumerRule = {
     sourceKind: number,
     targetKind: number,
-    // interval: number,
-    // check: boolean,
 }
 
 export type RuleSet = {
@@ -117,9 +113,12 @@ export function* forEachPair<T>(arr: T[]) {
     }
 }
 
+export const calcCollisions = (space: Token[]) =>
+    [...forEachPair(space)].filter(([t1, t2]) => v3.eq(t1.pos, t2.pos));
+
 export const calcStep = (ruleSet: RuleSet, space: Token[]) => {
     const producees = [...calcProducees(ruleSet.producerRules, space)];
-    const nextSpace = [...producees, ...space].map(t => _.cloneDeep(t));
+    const nextSpace = [ ...space, ...producees].map(t => _.cloneDeep(t));
     const forces = calcForces(ruleSet.forceRules, nextSpace);
     for (const force of forces) {
         force.target.pos = v3.add(force.target.pos, force.vec);
@@ -139,21 +138,6 @@ export const calcStep = (ruleSet: RuleSet, space: Token[]) => {
     }
 }
 
-
-export const calcCollisions = (space: Token[]) =>
-    [...forEachPair(space)].filter(([t1, t2]) => v3.eq(t1.pos, t2.pos));
-
-export const simulate = (ruleSet: RuleSet, space: Token[]) => {
-    const newSpace = [
-        ...calcProducees(ruleSet.producerRules, space),
-        ...space.map(t => _.cloneDeep(t)),
-    ];
-    const forces = calcForces(ruleSet.forceRules, newSpace);
-    for (const force of forces) {
-        force.target.pos = v3.add(force.target.pos, force.vec);
-    }
-    const consumees = [...calcConsumees(ruleSet.consumerRules, newSpace)];
-    return newSpace.filter(token => consumees.indexOf(token) < 0);
-}
+export const simulate = (ruleSet: RuleSet, space: Token[]) => calcStep(ruleSet, space).nextSpace1
 
 

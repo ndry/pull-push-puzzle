@@ -9,16 +9,14 @@ import { useEffect, useState } from "preact/hooks";
 import { ForceRuleEditor } from "./ForceRuleEditor";
 import { ListEditor, ListEditorStyles } from "./react-utils/ListEditor";
 import { SpaceEditor } from "./SpaceEditor";
-import { FramePlayer } from "./FramePlayer";
+import { StepPlayer } from "./StepPlayer";
 import { pipe, apply } from "./utils/pipe";
 import { levelSetup1 } from "./levelSetup1";
 
 const sim = (...args: Parameters<typeof simulate>) =>
     apply(
         it.inf(),
-        pipe(
-            it.scan(s => simulate(args[0], s), args[1]),
-            it.tap(console.log)));
+        it.scan(s => simulate(args[0], s), args[1]));
 
 const ensureTime = (spacetime: Space[], t: number, ruleSet: RuleSet) => {
     if (t < spacetime.length) { return spacetime; }
@@ -35,6 +33,7 @@ const noop = () => undefined;
 const colors = ["#ff0000", "#00ff00", "#0000ff", "#ffff00", "#00ffff", "#ff00ff"];
 const _css = css`
     & {
+        ${colors.map((color, i) => `--kindColor${i}: ${color};`).join("\n")}
         background-color: #efe;
     }
     &.playing {
@@ -47,43 +46,6 @@ const _css = css`
     &.playing>h1 {
         color: #44f;
     }
-    & .Token, & .cell {
-        stroke: black;
-        stroke-width: 0.01px;
-        r: 0.3px;
-    }
-    & .cell {
-        fill: transparent;
-    }
-    & .force {
-        stroke-width: 0.1px;
-    }
-    & .produceeToken {
-        r: 0.18px;
-    }
-    & .consumeeToken {
-        r: 0.18px;
-        stroke-width: 0.04px;
-        fill: transparent;
-    }
-    ${colors.map((color, i) => /*css*/`
-        & .Token${i} {
-            fill: ${color};
-        }
-        & #forceArrow${i} path {
-            fill: ${color};
-        }
-        & .force${i} {
-            stroke: ${color};
-            marker-end: url(#forceArrow${i})
-        }
-        & .produceeToken${i} {
-            fill: ${color};
-        }
-        & .consumeeToken${i} {
-            stroke: ${color};
-        }
-    `).join("")}
 `;
 
 
@@ -106,13 +68,12 @@ export function App() {
     }, [initialSpace, ruleSet]);
 
     const setT = (t: number) => setState(({ spacetime }) => ({
-        spacetime: ensureTime(spacetime, t, ruleSet),
+        spacetime: ensureTime(spacetime, Math.floor(t), ruleSet),
         t,
     }));
 
-
     const isEditor = t === 0;
-    const space = spacetime[t];
+    const space = spacetime[Math.floor(t)];
     const step = calcStep(ruleSet, space);
 
     const [setupString, setSetupString] = useState(JSON.stringify({
@@ -120,11 +81,10 @@ export function App() {
         initialSpace,
     }));
 
-
     return <div className={cx("App", { playing: !isEditor }, _css)}>
         <h1>{isEditor
             ? <>Editor mode: can edit</>
-            : <>Player mode: reset &#x23F9; player to first step to edit</>}</h1>
+            : <>Player mode: reset &#x23F9; to edit</>}</h1>
         <ListEditor
             values={ruleSet.forceRules}
             defaultValue={{
@@ -134,7 +94,7 @@ export function App() {
                 directionKind: 0
             }}
             renderValueEditor={(v, onInput) => <ForceRuleEditor
-                colorMap={colorMap}
+                kindCount={colorMap.length}
                 value={v}
                 onInput={onInput}
             />}
@@ -142,12 +102,13 @@ export function App() {
             className={ListEditorStyles.boxes} />
         <div>producerRules: {JSON.stringify(ruleSet.producerRules)}</div>
         <div>consumerRules: {JSON.stringify(ruleSet.consumerRules)}</div>
-        <FramePlayer value={t} setValue={setT} />
+        <StepPlayer value={t} setValue={setT} />
         <SpaceEditor
             kindCount={colorMap.length}
             value={space}
             setValue={isEditor ? setInitialState : noop}
-            ruleSet={ruleSet} />
+            ruleSet={ruleSet}
+            stepFrac={t - Math.trunc(t)} />
         {step.collisions.length > 0 && <div style={{ color: "red" }}>
             Has collisions: {JSON.stringify(step.collisions.map(([{ pos }]) => pos))}
         </div>}
