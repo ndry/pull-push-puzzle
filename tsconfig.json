@@ -1,10 +1,11 @@
 {
     "compilerOptions": {
-        "jsx": "react-jsx",
+        "jsx": "preserve",
         "jsxImportSource": "preact",
         "strict": true,
-        "target": "ES2015",
-        "moduleResolution": "Node"
+        "target": "ESNext",
+        "moduleResolution": "Node",
+        "isolatedModules": true
     },
-    "files": ["src/index.tsx"]
+    "include": ["./src/"]
 }

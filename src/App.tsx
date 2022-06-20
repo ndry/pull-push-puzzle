@@ -1,6 +1,7 @@
 import { css, cx } from "@emotion/css";
 import * as _ from "lodash";
 import * as it from "./utils/it";
+import * as rx from "rxjs";
 import update from "immutability-helper";
 import { calcStep, RuleSet, simulate, Space } from "./simulation";
 import { useEffect, useReducer, useState } from "preact/hooks";
@@ -11,6 +12,7 @@ import { SpaceEditor } from "./SpaceEditor";
 import { StepPlayer } from "./StepPlayer";
 import { apply } from "./utils/pipe";
 import { levelSetup1 } from "./levelSetup1";
+import { useRxSubscribe } from "./react-utils/useRxSubscribe";
 
 const sim = (...args: Parameters<typeof simulate>) =>
     apply(

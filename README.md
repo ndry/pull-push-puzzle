@@ -2,7 +2,7 @@
 
 ts+preact port of https://observablehq.com/@ndry/pull-push-puzzle-wip
 
-Demo: https://ndry.github.io/pull-push-puzzle/
+Demo: https://ndry.github.io/pull-push-puzzle/dist/
 
 ## Run locally
 
